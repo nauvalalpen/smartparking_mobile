@@ -6,19 +6,29 @@ class ApiService {
   // Ganti dengan IP WiFi Anda jika pakai HP Fisik. 10.0.2.2 khusus Emulator Android.
   static const String baseUrl = 'http://10.0.2.2:8000/api';
 
-  // Fungsi Login Petugas (Mesimulasikan Login & Simpan Sesi)
+  // Fungsi Login Petugas
   static Future<bool> login(String email, String password) async {
-    // Catatan: Di project Laravel kita belum membuat endpoint POST /login khusus API token.
-    // Untuk efisiensi frontend saat ini, kita simulasikan bypass pengecekan email khusus petugas.
-    // Jika Anda ingin hit API asli, gunakan http.post ke endpoint auth Laravel Anda.
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/v1/auth/login'),
+        body: {'email': email, 'password': password},
+      );
 
-    if (email.isNotEmpty && password.isNotEmpty) {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('token', 'dummy_token_123'); // Simpan token sesi
-      await prefs.setString('role', 'petugas');
-      return true;
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        // Simpan data user ke sesi HP
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString('token', 'active_session');
+        await prefs.setString('nama', data['data']['nama_lengkap']);
+        await prefs.setString('email', data['data']['email']);
+        await prefs.setString('role', data['data']['role']);
+        return true;
+      }
+    } catch (e) {
+      print('Login Error: $e');
     }
-    return false;
+    return false; // Login gagal
   }
 
   // Fungsi Tarik Data Slot (Public)
