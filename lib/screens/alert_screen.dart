@@ -1,41 +1,41 @@
 import 'package:flutter/material.dart';
+import '../services/alert_manager.dart';
 
-class AlertScreen extends StatelessWidget {
+class AlertScreen extends StatefulWidget {
   const AlertScreen({super.key});
 
+  @override
+  State<AlertScreen> createState() => _AlertScreenState();
+}
+
+class _AlertScreenState extends State<AlertScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text(
-            "Riwayat Peringatan",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 10),
-          Card(
-            color: Colors.red.shade50,
-            child: ListTile(
-              leading: Icon(
-                Icons.warning_amber_rounded,
-                color: Colors.red.shade700,
-                size: 40,
-              ),
-              title: const Text(
-                "Kapasitas Hampir Penuh!",
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: const Text(
-                "Area Parkiran Rektorat mencapai 95% kapasitas.",
-              ),
-              trailing: const Text("10:45 AM"),
+      body: AlertManager.alerts.isEmpty
+          ? const Center(child: Text("Belum ada peringatan."))
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: AlertManager.alerts.length,
+              itemBuilder: (context, index) {
+                return Card(
+                  color: Colors.red.shade50,
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.red.shade700,
+                      size: 40,
+                    ),
+                    title: const Text(
+                      "Kapasitas Penuh!",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(AlertManager.alerts[index]),
+                  ),
+                );
+              },
             ),
-          ),
-          // Tambahkan riwayat lain di sini jika ada
-        ],
-      ),
     );
   }
 }

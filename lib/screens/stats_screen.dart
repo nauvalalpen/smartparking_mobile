@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:math';
 import '../services/api_service.dart';
 
 class StatsScreen extends StatefulWidget {
@@ -12,6 +13,7 @@ class StatsScreen extends StatefulWidget {
 class _StatsScreenState extends State<StatsScreen> {
   List<dynamic> stats = [];
   bool isLoading = true;
+  double maxValue = 0; // Untuk tinggi maksimal grafik
 
   @override
   void initState() {
@@ -21,11 +23,22 @@ class _StatsScreenState extends State<StatsScreen> {
 
   Future<void> _loadStats() async {
     final data = await ApiService.getTrafficStats();
-    if (data != null) {
+    if (data != null && data.isNotEmpty) {
+      // Mencari nilai tertinggi agar grafik dinamis
+      double maxMasuk = data
+          .map((e) => (e['kendaraan_masuk'] as num).toDouble())
+          .reduce((a, b) => a > b ? a : b);
+      double maxKeluar = data
+          .map((e) => (e['kendaraan_keluar'] as num).toDouble())
+          .reduce((a, b) => a > b ? a : b);
+
       setState(() {
         stats = data;
+        maxValue = max(maxMasuk, maxKeluar) + 20; // Tambah ruang 20 di atas
         isLoading = false;
       });
+    } else {
+      setState(() => isLoading = false);
     }
   }
 
@@ -35,6 +48,8 @@ class _StatsScreenState extends State<StatsScreen> {
       backgroundColor: Colors.grey.shade100,
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
+          : stats.isEmpty
+          ? const Center(child: Text("Belum ada data statistik."))
           : Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -45,18 +60,33 @@ class _StatsScreenState extends State<StatsScreen> {
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    "Perbandingan kendaraan masuk (Biru) dan keluar (Merah)",
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        color: Colors.blue.shade700,
+                      ),
+                      const SizedBox(width: 4),
+                      const Text("Masuk", style: TextStyle(fontSize: 12)),
+                      const SizedBox(width: 16),
+                      Container(
+                        width: 12,
+                        height: 12,
+                        color: Colors.red.shade700,
+                      ),
+                      const SizedBox(width: 4),
+                      const Text("Keluar", style: TextStyle(fontSize: 12)),
+                    ],
                   ),
                   const SizedBox(height: 30),
-
-                  // CONTAINER GRAFIK
                   Expanded(
                     child: BarChart(
                       BarChartData(
                         alignment: BarChartAlignment.spaceAround,
-                        maxY: 200, // Sesuaikan dengan skala data Anda
+                        maxY: maxValue == 20
+                            ? 100
+                            : maxValue, // Fallback jika data 0
                         barGroups: stats.asMap().entries.map((entry) {
                           int index = entry.key;
                           var data = entry.value;
@@ -66,14 +96,14 @@ class _StatsScreenState extends State<StatsScreen> {
                               BarChartRodData(
                                 toY: data['kendaraan_masuk'].toDouble(),
                                 color: Colors.blue.shade700,
-                                width: 12,
-                                borderRadius: BorderRadius.circular(4),
+                                width: 14,
+                                borderRadius: BorderRadius.circular(2),
                               ),
                               BarChartRodData(
                                 toY: data['kendaraan_keluar'].toDouble(),
                                 color: Colors.red.shade700,
-                                width: 12,
-                                borderRadius: BorderRadius.circular(4),
+                                width: 14,
+                                borderRadius: BorderRadius.circular(2),
                               ),
                             ],
                           );
@@ -85,23 +115,27 @@ class _StatsScreenState extends State<StatsScreen> {
                               getTitlesWidget: (value, meta) {
                                 int i = value.toInt();
                                 if (i >= 0 && i < stats.length) {
-                                  // Mengambil tanggal (hanya angka hari)
-                                  String date = stats[i]['tanggal'].split(
-                                    '-',
-                                  )[2];
-                                  return Text(
-                                    date,
-                                    style: const TextStyle(fontSize: 10),
+                                  // Ambil Tgl & Bulan (Misal: "11 May")
+                                  List<String> dateParts = stats[i]['tanggal']
+                                      .split('-');
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 8.0),
+                                    child: Text(
+                                      "${dateParts[2]}/${dateParts[1]}",
+                                      style: const TextStyle(fontSize: 10),
+                                    ),
                                   );
                                 }
                                 return const Text('');
                               },
                             ),
                           ),
-                          leftTitles: const AxisTitles(
+                          leftTitles: AxisTitles(
                             sideTitles: SideTitles(
                               showTitles: true,
-                              reservedSize: 30,
+                              reservedSize: 40,
+                              interval: (maxValue / 5)
+                                  .ceilToDouble(), // Interval dinamis agar rapi
                             ),
                           ),
                           topTitles: const AxisTitles(
@@ -112,14 +146,15 @@ class _StatsScreenState extends State<StatsScreen> {
                           ),
                         ),
                         borderData: FlBorderData(show: false),
-                        gridData: const FlGridData(
+                        gridData: FlGridData(
                           show: true,
                           drawVerticalLine: false,
+                          horizontalInterval: (maxValue / 5).ceilToDouble(),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 50),
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
