@@ -17,8 +17,9 @@ class _MapScreenState extends State<MapScreen> {
   List<dynamic> allSlotData = [];
   List<dynamic> filteredSlotData = [];
 
-  List<String> listKamera = ["Semua Kamera"];
-  String selectedKamera = "Semua Kamera";
+  Map<String, String> cameraNamesMap = {}; // Map untuk id_kamera -> nama_kamera
+  List<String> listKameraIds = ["semua"]; // ID Kamera untuk dropdown value
+  String selectedKameraId = "semua"; // ID Kamera yang dipilih
 
   Timer? _timer;
   bool isAlertTriggered = false; // Mencegah spam snackbar
@@ -44,23 +45,31 @@ class _MapScreenState extends State<MapScreen> {
     if (data != null && data['status'] == 'success') {
       List<dynamic> slots = data['data'];
 
-      // Ambil daftar ID Kamera secara dinamis
-      Set<String> kamIDs = {"Semua Kamera"};
+      // Ambil daftar Kamera secara dinamis dengan nama camera
+      Map<String, String> tempCameraNamesMap = {};
+      Set<String> kamIds = {"semua"};
+
       for (var s in slots) {
-        kamIDs.add("Kamera ID: ${s['id_kamera']}");
+        String camId = s['id_kamera'].toString();
+        String camName = s['camera'] != null
+            ? s['camera']['nama_kamera'] ?? "Kamera $camId"
+            : "Kamera $camId";
+
+        tempCameraNamesMap[camId] = camName;
+        kamIds.add(camId);
       }
 
       setState(() {
+        cameraNamesMap = tempCameraNamesMap;
         allSlotData = slots;
-        listKamera = kamIDs.toList();
+        listKameraIds = kamIds.toList();
 
         // Eksekusi Filter
-        if (selectedKamera == "Semua Kamera") {
+        if (selectedKameraId == "semua") {
           filteredSlotData = allSlotData;
         } else {
-          String camId = selectedKamera.replaceAll("Kamera ID: ", "");
           filteredSlotData = allSlotData
-              .where((s) => s['id_kamera'].toString() == camId)
+              .where((s) => s['id_kamera'].toString() == selectedKameraId)
               .toList();
         }
 
@@ -71,12 +80,13 @@ class _MapScreenState extends State<MapScreen> {
 
         // LOGIKA SMART ALERT
         if (sisaSlot == 0 && totalSlot > 0) {
-          AlertManager.addAlert("Area $selectedKamera telah penuh!");
+          String camDisplayName = _getCameraDisplayName(selectedKameraId);
+          AlertManager.addAlert("Area $camDisplayName telah penuh!");
           if (!isAlertTriggered) {
             isAlertTriggered = true;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text("ALERT: $selectedKamera Penuh!"),
+                content: Text("ALERT: $camDisplayName Penuh!"),
                 backgroundColor: Colors.red,
               ),
             );
@@ -86,6 +96,13 @@ class _MapScreenState extends State<MapScreen> {
         }
       });
     }
+  }
+
+  String _getCameraDisplayName(String cameraId) {
+    if (cameraId == "semua") {
+      return "Semua Kamera";
+    }
+    return cameraNamesMap[cameraId] ?? "Kamera $cameraId";
   }
 
   @override
@@ -102,17 +119,18 @@ class _MapScreenState extends State<MapScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButton<String>(
-                  value: selectedKamera,
+                  value: selectedKameraId,
                   isExpanded: true,
-                  items: listKamera.map((String value) {
+                  items: listKameraIds.map((String camId) {
+                    String displayName = _getCameraDisplayName(camId);
                     return DropdownMenuItem<String>(
-                      value: value,
-                      child: Text(value),
+                      value: camId,
+                      child: Text(displayName),
                     );
                   }).toList(),
                   onChanged: (newValue) {
                     setState(() {
-                      selectedKamera = newValue!;
+                      selectedKameraId = newValue!;
                       _fetchData(); // Panggil ulang untuk re-filter
                     });
                   },
