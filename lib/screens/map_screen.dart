@@ -16,6 +16,9 @@ class _MapScreenState extends State<MapScreen> {
   int sisaSlot = 0;
   List<dynamic> allSlotData = [];
   List<dynamic> filteredSlotData = [];
+  double currentWebWidth = 1280.0;
+  double currentWebHeight = 720.0;
+  List<dynamic> listDataKamera = [];
 
   Map<String, String> cameraNamesMap = {};
   List<String> listKameraIds = []; // Dikosongkan di awal
@@ -44,6 +47,7 @@ class _MapScreenState extends State<MapScreen> {
     final data = await ApiService.getPublicSlots();
     if (data != null && data['status'] == 'success') {
       List<dynamic> slots = data['data'];
+      List<dynamic> kameras = data['kameras'];
 
       Map<String, String> tempCameraNamesMap = {};
       Set<String> kamIds = {};
@@ -62,6 +66,7 @@ class _MapScreenState extends State<MapScreen> {
         cameraNamesMap = tempCameraNamesMap;
         allSlotData = slots;
         listKameraIds = kamIds.toList();
+        listDataKamera = kameras;
 
         // Otomatis pilih kamera pertama jika belum ada yang dipilih
         if (selectedKameraId == null && listKameraIds.isNotEmpty) {
@@ -95,6 +100,17 @@ class _MapScreenState extends State<MapScreen> {
           }
         } else {
           isAlertTriggered = false;
+        }
+
+        var kameraTerpilih = listDataKamera.firstWhere(
+          (k) => k['id_kamera'].toString() == selectedKameraId,
+          orElse: () => null,
+        );
+
+        if (kameraTerpilih != null) {
+          // Ambil dari database, jika null pakai default
+          currentWebWidth = (kameraTerpilih['resolusi_x'] ?? 1280).toDouble();
+          currentWebHeight = (kameraTerpilih['resolusi_y'] ?? 720).toDouble();
         }
       });
     }
@@ -195,15 +211,34 @@ class _MapScreenState extends State<MapScreen> {
                   return Stack(
                     children: [
                       // 1. Gambar Asli
+                      // 1. Gambar Asli
                       Image.network(
                         imageUrl,
                         width: constraints.maxWidth,
                         height: constraints.maxHeight,
                         fit: BoxFit.fill,
+                        // Menambahkan loading builder agar tidak timeout mendadak
+                        loadingBuilder:
+                            (
+                              BuildContext context,
+                              Widget child,
+                              ImageChunkEvent? loadingProgress,
+                            ) {
+                              if (loadingProgress == null) return child;
+                              return Center(
+                                child: CircularProgressIndicator(
+                                  value:
+                                      loadingProgress.expectedTotalBytes != null
+                                      ? loadingProgress.cumulativeBytesLoaded /
+                                            loadingProgress.expectedTotalBytes!
+                                      : null,
+                                ),
+                              );
+                            },
                         errorBuilder: (context, error, stackTrace) {
-                          // Jika file foto aslinya belum ada di Laravel, tampilkan gambar abu-abu ini!
+                          // Gunakan gambar placeholder yang ukurannya kecil (resolusi di bawah 1MB)
                           return Image.network(
-                            'https://via.placeholder.com/640x480.png?text=Feed+Kamera+CCTV',
+                            'https://via.placeholder.com/1280x720.png?text=Frame+Kamera+Belum+Tersedia',
                             width: constraints.maxWidth,
                             height: constraints.maxHeight,
                             fit: BoxFit.fill,
@@ -216,9 +251,8 @@ class _MapScreenState extends State<MapScreen> {
                         size: Size(constraints.maxWidth, constraints.maxHeight),
                         painter: ParkingPainter(
                           slots: filteredSlotData,
-                          // PENTING: Jika titik meleset, ganti angka di bawah ini dengan RESOLUSI ASLI gambar parkiran Anda! (Misal: 1920 dan 1080)
-                          webWidth: 1600.0,
-                          webHeight: 820.0,
+                          webWidth: currentWebWidth, // <-- Sekarang DINAMIS!
+                          webHeight: currentWebHeight, // <-- Sekarang DINAMIS!
                         ),
                       ),
                     ],
