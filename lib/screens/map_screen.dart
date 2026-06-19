@@ -16,16 +16,19 @@ class _MapScreenState extends State<MapScreen> {
   int sisaSlot = 0;
   List<dynamic> allSlotData = [];
   List<dynamic> filteredSlotData = [];
-  double currentWebWidth = 1280.0;
-  double currentWebHeight = 720.0;
-  List<dynamic> listDataKamera = [];
 
   Map<String, String> cameraNamesMap = {};
-  List<String> listKameraIds = []; // Dikosongkan di awal
-  String? selectedKameraId; // Dibuat nullable
+  List<String> listKameraIds = [];
+  String? selectedKameraId;
 
   Timer? _timer;
   bool isAlertTriggered = false;
+
+  // VARIABEL UNTUK AUTO-DETECT RESOLUSI
+  double currentWebWidth =
+      1280.0; // Angka sementara, akan di-overwrite otomatis
+  double currentWebHeight = 720.0;
+  String lastLoadedImageUrl = "";
 
   @override
   void initState() {
@@ -43,11 +46,35 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
+  // === FUNGSI SAKTI: MENDETEKSI RESOLUSI GAMBAR ASLI DARI SERVER ===
+  void _updateImageResolution(String url) {
+    if (url == lastLoadedImageUrl)
+      return; // Mencegah proses deteksi berulang kali
+
+    final ImageProvider imageProvider = NetworkImage(url);
+    imageProvider
+        .resolve(const ImageConfiguration())
+        .addListener(
+          ImageStreamListener((ImageInfo info, bool _) {
+            if (mounted) {
+              setState(() {
+                // Mengambil Width dan Height ASLI dari gambar CCTV
+                currentWebWidth = info.image.width.toDouble();
+                currentWebHeight = info.image.height.toDouble();
+                lastLoadedImageUrl = url;
+                print(
+                  "RESOLUSI TERDETEKSI: $currentWebWidth x $currentWebHeight",
+                );
+              });
+            }
+          }),
+        );
+  }
+
   Future<void> _fetchData() async {
     final data = await ApiService.getPublicSlots();
     if (data != null && data['status'] == 'success') {
       List<dynamic> slots = data['data'];
-      List<dynamic> kameras = data['kameras'];
 
       Map<String, String> tempCameraNamesMap = {};
       Set<String> kamIds = {};
@@ -66,14 +93,11 @@ class _MapScreenState extends State<MapScreen> {
         cameraNamesMap = tempCameraNamesMap;
         allSlotData = slots;
         listKameraIds = kamIds.toList();
-        listDataKamera = kameras;
 
-        // Otomatis pilih kamera pertama jika belum ada yang dipilih
         if (selectedKameraId == null && listKameraIds.isNotEmpty) {
           selectedKameraId = listKameraIds.first;
         }
 
-        // Filter berdasarkan kamera yang dipilih
         if (selectedKameraId != null) {
           filteredSlotData = allSlotData
               .where((s) => s['id_kamera'].toString() == selectedKameraId)
@@ -101,17 +125,6 @@ class _MapScreenState extends State<MapScreen> {
         } else {
           isAlertTriggered = false;
         }
-
-        var kameraTerpilih = listDataKamera.firstWhere(
-          (k) => k['id_kamera'].toString() == selectedKameraId,
-          orElse: () => null,
-        );
-
-        if (kameraTerpilih != null) {
-          // Ambil dari database, jika null pakai default
-          currentWebWidth = (kameraTerpilih['resolusi_x'] ?? 1280).toDouble();
-          currentWebHeight = (kameraTerpilih['resolusi_y'] ?? 720).toDouble();
-        }
       });
     }
   }
@@ -125,6 +138,9 @@ class _MapScreenState extends State<MapScreen> {
     String currentCamId = selectedKameraId ?? "1";
     String imageUrl =
         "${ApiService.baseUrl.replaceAll('/api', '')}/snapshots/kamera_$currentCamId.jpg";
+
+    // Panggil Auto-Detect Resolusi
+    _updateImageResolution(imageUrl);
 
     return Column(
       children: [
@@ -208,54 +224,50 @@ class _MapScreenState extends State<MapScreen> {
               borderRadius: BorderRadius.circular(12),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  return Stack(
-                    children: [
-                      // 1. Gambar Asli
-                      // 1. Gambar Asli
-                      Image.network(
-                        imageUrl,
-                        width: constraints.maxWidth,
-                        height: constraints.maxHeight,
-                        fit: BoxFit.fill,
-                        // Menambahkan loading builder agar tidak timeout mendadak
-                        loadingBuilder:
-                            (
-                              BuildContext context,
-                              Widget child,
-                              ImageChunkEvent? loadingProgress,
-                            ) {
+                  // MENGHITUNG RASIO DARI RESOLUSI ASLI GAMBAR
+                  double imageRatio = currentWebWidth / currentWebHeight;
+
+                  return Center(
+                    child: AspectRatio(
+                      aspectRatio: imageRatio,
+                      child: Stack(
+                        children: [
+                          Image.network(
+                            imageUrl,
+                            width: double.infinity,
+                            height: double.infinity,
+                            fit: BoxFit.fill,
+                            loadingBuilder: (context, child, loadingProgress) {
                               if (loadingProgress == null) return child;
-                              return Center(
-                                child: CircularProgressIndicator(
-                                  value:
-                                      loadingProgress.expectedTotalBytes != null
-                                      ? loadingProgress.cumulativeBytesLoaded /
-                                            loadingProgress.expectedTotalBytes!
-                                      : null,
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: Colors.grey.shade800,
+                                child: const Center(
+                                  child: Text(
+                                    "Menunggu Feed Kamera...",
+                                    style: TextStyle(color: Colors.white54),
+                                  ),
                                 ),
                               );
                             },
-                        errorBuilder: (context, error, stackTrace) {
-                          // Gunakan gambar placeholder yang ukurannya kecil (resolusi di bawah 1MB)
-                          return Image.network(
-                            'https://via.placeholder.com/1280x720.png?text=Frame+Kamera+Belum+Tersedia',
-                            width: constraints.maxWidth,
-                            height: constraints.maxHeight,
-                            fit: BoxFit.fill,
-                          );
-                        },
-                      ),
+                          ),
 
-                      // 2. Kanvas Poligon
-                      CustomPaint(
-                        size: Size(constraints.maxWidth, constraints.maxHeight),
-                        painter: ParkingPainter(
-                          slots: filteredSlotData,
-                          webWidth: currentWebWidth, // <-- Sekarang DINAMIS!
-                          webHeight: currentWebHeight, // <-- Sekarang DINAMIS!
-                        ),
+                          // Kanvas Poligon (Langsung menggunakan resolusi asli gambar)
+                          CustomPaint(
+                            size: Size.infinite,
+                            painter: ParkingPainter(
+                              slots: filteredSlotData,
+                              webWidth: currentWebWidth,
+                              webHeight: currentWebHeight,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   );
                 },
               ),
@@ -281,6 +293,9 @@ class ParkingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Jika data belum lengkap, batalkan menggambar agar tidak error
+    if (webWidth == 0 || webHeight == 0) return;
+
     double scaleX = size.width / webWidth;
     double scaleY = size.height / webHeight;
 
