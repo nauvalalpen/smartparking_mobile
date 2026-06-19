@@ -17,12 +17,12 @@ class _MapScreenState extends State<MapScreen> {
   List<dynamic> allSlotData = [];
   List<dynamic> filteredSlotData = [];
 
-  Map<String, String> cameraNamesMap = {}; // Map untuk id_kamera -> nama_kamera
-  List<String> listKameraIds = ["semua"]; // ID Kamera untuk dropdown value
-  String selectedKameraId = "semua"; // ID Kamera yang dipilih
+  Map<String, String> cameraNamesMap = {};
+  List<String> listKameraIds = []; // Dikosongkan di awal
+  String? selectedKameraId; // Dibuat nullable
 
   Timer? _timer;
-  bool isAlertTriggered = false; // Mencegah spam snackbar
+  bool isAlertTriggered = false;
 
   @override
   void initState() {
@@ -45,9 +45,8 @@ class _MapScreenState extends State<MapScreen> {
     if (data != null && data['status'] == 'success') {
       List<dynamic> slots = data['data'];
 
-      // Ambil daftar Kamera secara dinamis dengan nama camera
       Map<String, String> tempCameraNamesMap = {};
-      Set<String> kamIds = {"semua"};
+      Set<String> kamIds = {};
 
       for (var s in slots) {
         String camId = s['id_kamera'].toString();
@@ -64,10 +63,13 @@ class _MapScreenState extends State<MapScreen> {
         allSlotData = slots;
         listKameraIds = kamIds.toList();
 
-        // Eksekusi Filter
-        if (selectedKameraId == "semua") {
-          filteredSlotData = allSlotData;
-        } else {
+        // Otomatis pilih kamera pertama jika belum ada yang dipilih
+        if (selectedKameraId == null && listKameraIds.isNotEmpty) {
+          selectedKameraId = listKameraIds.first;
+        }
+
+        // Filter berdasarkan kamera yang dipilih
+        if (selectedKameraId != null) {
           filteredSlotData = allSlotData
               .where((s) => s['id_kamera'].toString() == selectedKameraId)
               .toList();
@@ -80,7 +82,7 @@ class _MapScreenState extends State<MapScreen> {
 
         // LOGIKA SMART ALERT
         if (sisaSlot == 0 && totalSlot > 0) {
-          String camDisplayName = _getCameraDisplayName(selectedKameraId);
+          String camDisplayName = _getCameraDisplayName(selectedKameraId!);
           AlertManager.addAlert("Area $camDisplayName telah penuh!");
           if (!isAlertTriggered) {
             isAlertTriggered = true;
@@ -92,21 +94,22 @@ class _MapScreenState extends State<MapScreen> {
             );
           }
         } else {
-          isAlertTriggered = false; // Reset jika sudah ada yang kosong
+          isAlertTriggered = false;
         }
       });
     }
   }
 
   String _getCameraDisplayName(String cameraId) {
-    if (cameraId == "semua") {
-      return "Semua Kamera";
-    }
     return cameraNamesMap[cameraId] ?? "Kamera $cameraId";
   }
 
   @override
   Widget build(BuildContext context) {
+    String currentCamId = selectedKameraId ?? "1";
+    String imageUrl =
+        "${ApiService.baseUrl.replaceAll('/api', '')}/snapshots/kamera_$currentCamId.jpg";
+
     return Column(
       children: [
         // DROPDOWN FILTER
@@ -119,20 +122,24 @@ class _MapScreenState extends State<MapScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButton<String>(
-                  value: selectedKameraId,
+                  value: listKameraIds.contains(selectedKameraId)
+                      ? selectedKameraId
+                      : null,
                   isExpanded: true,
-                  items: listKameraIds.map((String camId) {
-                    String displayName = _getCameraDisplayName(camId);
+                  hint: const Text("Pilih Kamera..."),
+                  items: listKameraIds.map((String value) {
                     return DropdownMenuItem<String>(
-                      value: camId,
-                      child: Text(displayName),
+                      value: value,
+                      child: Text(_getCameraDisplayName(value)),
                     );
                   }).toList(),
                   onChanged: (newValue) {
-                    setState(() {
-                      selectedKameraId = newValue!;
-                      _fetchData(); // Panggil ulang untuk re-filter
-                    });
+                    if (newValue != null) {
+                      setState(() {
+                        selectedKameraId = newValue;
+                        _fetchData();
+                      });
+                    }
                   },
                 ),
               ),
@@ -148,7 +155,7 @@ class _MapScreenState extends State<MapScreen> {
           decoration: BoxDecoration(
             color: sisaSlot > 0 ? Colors.green.shade700 : Colors.red.shade700,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8)],
+            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
           ),
           child: Column(
             children: [
@@ -177,15 +184,46 @@ class _MapScreenState extends State<MapScreen> {
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.grey.shade200,
+              color: Colors.black87,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.grey.shade400, width: 2),
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: CustomPaint(
-                size: Size.infinite,
-                painter: ParkingPainter(slots: filteredSlotData),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return Stack(
+                    children: [
+                      // 1. Gambar Asli
+                      Image.network(
+                        imageUrl,
+                        width: constraints.maxWidth,
+                        height: constraints.maxHeight,
+                        fit: BoxFit.fill,
+                        errorBuilder: (context, error, stackTrace) {
+                          // Jika file foto aslinya belum ada di Laravel, tampilkan gambar abu-abu ini!
+                          return Image.network(
+                            'https://via.placeholder.com/640x480.png?text=Feed+Kamera+CCTV',
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            fit: BoxFit.fill,
+                          );
+                        },
+                      ),
+
+                      // 2. Kanvas Poligon
+                      CustomPaint(
+                        size: Size(constraints.maxWidth, constraints.maxHeight),
+                        painter: ParkingPainter(
+                          slots: filteredSlotData,
+                          // PENTING: Jika titik meleset, ganti angka di bawah ini dengan RESOLUSI ASLI gambar parkiran Anda! (Misal: 1920 dan 1080)
+                          webWidth: 1600.0,
+                          webHeight: 820.0,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -196,13 +234,22 @@ class _MapScreenState extends State<MapScreen> {
   }
 }
 
-// === CLASS CUSTOM PAINTER (Tetap sama seperti sebelumnya) ===
 class ParkingPainter extends CustomPainter {
   final List<dynamic> slots;
-  ParkingPainter({required this.slots});
+  final double webWidth;
+  final double webHeight;
+
+  ParkingPainter({
+    required this.slots,
+    required this.webWidth,
+    required this.webHeight,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
+    double scaleX = size.width / webWidth;
+    double scaleY = size.height / webHeight;
+
     for (var slot in slots) {
       if (slot['koordinat_roi'] == null || slot['koordinat_roi'] == "")
         continue;
@@ -211,9 +258,15 @@ class ParkingPainter extends CustomPainter {
       if (coords.isEmpty) continue;
 
       Path path = Path();
-      path.moveTo(coords[0]['x'].toDouble(), coords[0]['y'].toDouble());
+      path.moveTo(
+        coords[0]['x'].toDouble() * scaleX,
+        coords[0]['y'].toDouble() * scaleY,
+      );
       for (int i = 1; i < coords.length; i++) {
-        path.lineTo(coords[i]['x'].toDouble(), coords[i]['y'].toDouble());
+        path.lineTo(
+          coords[i]['x'].toDouble() * scaleX,
+          coords[i]['y'].toDouble() * scaleY,
+        );
       }
       path.close();
 
@@ -247,7 +300,10 @@ class ParkingPainter extends CustomPainter {
       tp.layout();
       tp.paint(
         canvas,
-        Offset(coords[0]['x'].toDouble() + 10, coords[0]['y'].toDouble() + 10),
+        Offset(
+          (coords[0]['x'].toDouble() * scaleX) + 5,
+          (coords[0]['y'].toDouble() * scaleY) + 5,
+        ),
       );
     }
   }
