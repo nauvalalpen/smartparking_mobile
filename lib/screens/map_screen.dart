@@ -16,6 +16,9 @@ class _MapScreenState extends State<MapScreen> {
   int sisaSlot = 0;
   List<dynamic> allSlotData = [];
   List<dynamic> filteredSlotData = [];
+  double currentWebWidth = 1280.0;
+  double currentWebHeight = 720.0;
+  List<dynamic> listDataKamera = [];
 
   Map<String, String> cameraNamesMap = {};
   List<String> listKameraIds = [];
@@ -23,11 +26,6 @@ class _MapScreenState extends State<MapScreen> {
 
   Timer? _timer;
   bool isAlertTriggered = false;
-
-  // VARIABEL UNTUK AUTO-DETECT RESOLUSI
-  double currentWebWidth =
-      1280.0; // Angka sementara, akan di-overwrite otomatis
-  double currentWebHeight = 720.0;
   String lastLoadedImageUrl = "";
 
   @override
@@ -46,10 +44,8 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
-  // === FUNGSI SAKTI: MENDETEKSI RESOLUSI GAMBAR ASLI DARI SERVER ===
   void _updateImageResolution(String url) {
-    if (url == lastLoadedImageUrl)
-      return; // Mencegah proses deteksi berulang kali
+    if (url == lastLoadedImageUrl) return;
 
     final ImageProvider imageProvider = NetworkImage(url);
     imageProvider
@@ -58,13 +54,9 @@ class _MapScreenState extends State<MapScreen> {
           ImageStreamListener((ImageInfo info, bool _) {
             if (mounted) {
               setState(() {
-                // Mengambil Width dan Height ASLI dari gambar CCTV
                 currentWebWidth = info.image.width.toDouble();
                 currentWebHeight = info.image.height.toDouble();
                 lastLoadedImageUrl = url;
-                print(
-                  "RESOLUSI TERDETEKSI: $currentWebWidth x $currentWebHeight",
-                );
               });
             }
           }),
@@ -75,6 +67,7 @@ class _MapScreenState extends State<MapScreen> {
     final data = await ApiService.getPublicSlots();
     if (data != null && data['status'] == 'success') {
       List<dynamic> slots = data['data'];
+      List<dynamic> kameras = data['kameras'];
 
       Map<String, String> tempCameraNamesMap = {};
       Set<String> kamIds = {};
@@ -93,6 +86,7 @@ class _MapScreenState extends State<MapScreen> {
         cameraNamesMap = tempCameraNamesMap;
         allSlotData = slots;
         listKameraIds = kamIds.toList();
+        listDataKamera = kameras;
 
         if (selectedKameraId == null && listKameraIds.isNotEmpty) {
           selectedKameraId = listKameraIds.first;
@@ -109,7 +103,6 @@ class _MapScreenState extends State<MapScreen> {
             .where((s) => s['status'] == 'kosong')
             .length;
 
-        // LOGIKA SMART ALERT
         if (sisaSlot == 0 && totalSlot > 0) {
           String camDisplayName = _getCameraDisplayName(selectedKameraId!);
           AlertManager.addAlert("Area $camDisplayName telah penuh!");
@@ -125,6 +118,16 @@ class _MapScreenState extends State<MapScreen> {
         } else {
           isAlertTriggered = false;
         }
+
+        var kameraTerpilih = listDataKamera.firstWhere(
+          (k) => k['id_kamera'].toString() == selectedKameraId,
+          orElse: () => null,
+        );
+
+        if (kameraTerpilih != null) {
+          currentWebWidth = (kameraTerpilih['resolusi_x'] ?? 1280).toDouble();
+          currentWebHeight = (kameraTerpilih['resolusi_y'] ?? 720).toDouble();
+        }
       });
     }
   }
@@ -139,7 +142,6 @@ class _MapScreenState extends State<MapScreen> {
     String imageUrl =
         "${ApiService.baseUrl.replaceAll('/api', '')}/snapshots/kamera_$currentCamId.jpg";
 
-    // Panggil Auto-Detect Resolusi
     _updateImageResolution(imageUrl);
 
     return Column(
@@ -211,75 +213,80 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ),
 
-        // CANVAS PETA POLIGON RoI
+        // 🌟 FITUR BARU: CANVAS PETA DENGAN ZOOM & TANPA BLACK BORDER
         Expanded(
           child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             decoration: BoxDecoration(
-              color: Colors.black87,
+              color: Colors.grey.shade200, // Warna soft pengganti hitam
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade400, width: 2),
+              border: Border.all(color: Colors.grey.shade300, width: 2),
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // MENGHITUNG RASIO DARI RESOLUSI ASLI GAMBAR
-                  double imageRatio = currentWebWidth / currentWebHeight;
+              // 🌟 INTERACTIVE VIEWER UNTUK PINCH-TO-ZOOM
+              child: InteractiveViewer(
+                panEnabled: true, // Bisa digeser
+                scaleEnabled: true, // Bisa di-zoom
+                minScale: 1.0,
+                maxScale: 4.0, // Maksimal zoom 4x
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    double imageRatio = currentWebWidth / currentWebHeight;
 
-                  return Center(
-                    child: AspectRatio(
-                      aspectRatio: imageRatio,
-                      child: Stack(
-                        children: [
-                          Image.network(
-                            imageUrl,
-                            width: double.infinity,
-                            height: double.infinity,
-                            fit: BoxFit.fill,
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return const Center(
-                                child: CircularProgressIndicator(),
-                              );
-                            },
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                color: Colors.grey.shade800,
-                                child: const Center(
-                                  child: Text(
-                                    "Menunggu Feed Kamera...",
-                                    style: TextStyle(color: Colors.white54),
+                    return Center(
+                      child: AspectRatio(
+                        aspectRatio: imageRatio,
+                        child: Stack(
+                          children: [
+                            Image.network(
+                              imageUrl,
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: BoxFit
+                                  .cover, // Cover agar lebih penuh jika di-zoom
+                              loadingBuilder:
+                                  (context, child, loadingProgress) {
+                                    if (loadingProgress == null) return child;
+                                    return const Center(
+                                      child: CircularProgressIndicator(),
+                                    );
+                                  },
+                              errorBuilder: (context, error, stackTrace) {
+                                return const Center(
+                                  child: Icon(
+                                    Icons.videocam_off,
+                                    color: Colors.grey,
+                                    size: 50,
                                   ),
-                                ),
-                              );
-                            },
-                          ),
-
-                          // Kanvas Poligon (Langsung menggunakan resolusi asli gambar)
-                          CustomPaint(
-                            size: Size.infinite,
-                            painter: ParkingPainter(
-                              slots: filteredSlotData,
-                              webWidth: currentWebWidth,
-                              webHeight: currentWebHeight,
+                                );
+                              },
                             ),
-                          ),
-                        ],
+
+                            CustomPaint(
+                              size: Size.infinite,
+                              painter: ParkingPainter(
+                                slots: filteredSlotData,
+                                webWidth: currentWebWidth,
+                                webHeight: currentWebHeight,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
           ),
         ),
-        const SizedBox(height: 16),
       ],
     );
   }
 }
 
+// === CLASS CUSTOM PAINTER BARU ===
 class ParkingPainter extends CustomPainter {
   final List<dynamic> slots;
   final double webWidth;
@@ -293,7 +300,6 @@ class ParkingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Jika data belum lengkap, batalkan menggambar agar tidak error
     if (webWidth == 0 || webHeight == 0) return;
 
     double scaleX = size.width / webWidth;
@@ -307,52 +313,69 @@ class ParkingPainter extends CustomPainter {
       if (coords.isEmpty) continue;
 
       Path path = Path();
+
+      // Variabel untuk menghitung titik tengah (Centroid)
+      double sumX = 0;
+      double sumY = 0;
+
       path.moveTo(
         coords[0]['x'].toDouble() * scaleX,
         coords[0]['y'].toDouble() * scaleY,
       );
-      for (int i = 1; i < coords.length; i++) {
-        path.lineTo(
-          coords[i]['x'].toDouble() * scaleX,
-          coords[i]['y'].toDouble() * scaleY,
-        );
+
+      for (int i = 0; i < coords.length; i++) {
+        double scaledX = coords[i]['x'].toDouble() * scaleX;
+        double scaledY = coords[i]['y'].toDouble() * scaleY;
+
+        if (i > 0) path.lineTo(scaledX, scaledY);
+
+        sumX += scaledX;
+        sumY += scaledY;
       }
       path.close();
+
+      // 🌟 RUMUS CENTROID: Total X dan Y dibagi jumlah titik
+      double centerX = sumX / coords.length;
+      double centerY = sumY / coords.length;
 
       bool isTerisi = slot['status'] == 'terisi';
       Paint paintFill = Paint()
         ..color = isTerisi
-            ? Colors.red.withOpacity(0.5)
-            : Colors.green.withOpacity(0.5)
+            ? Colors.red.withOpacity(0.4)
+            : Colors.green.withOpacity(0.4)
         ..style = PaintingStyle.fill;
       Paint paintStroke = Paint()
-        ..color = isTerisi ? Colors.red.shade800 : Colors.green.shade800
+        ..color = isTerisi ? Colors.red.shade700 : Colors.green.shade700
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3;
+        ..strokeWidth = 2.5;
 
       canvas.drawPath(path, paintFill);
       canvas.drawPath(path, paintStroke);
 
+      // 🌟 TEKS DI TENGAH POLIGON (Lebih kecil dan pakai shadow agar terbaca)
       TextSpan span = TextSpan(
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 16,
+          fontSize: 12, // Font dikecilkan
           fontWeight: FontWeight.bold,
+          shadows: [
+            Shadow(color: Colors.black87, blurRadius: 4),
+          ], // Efek bayangan
         ),
         text: slot['nama_slot'],
       );
+
       TextPainter tp = TextPainter(
         text: span,
         textAlign: TextAlign.center,
         textDirection: TextDirection.ltr,
       );
       tp.layout();
+
+      // Menempatkan teks persis di tengah poligon dikurangi setengah ukuran teksnya
       tp.paint(
         canvas,
-        Offset(
-          (coords[0]['x'].toDouble() * scaleX) + 5,
-          (coords[0]['y'].toDouble() * scaleY) + 5,
-        ),
+        Offset(centerX - (tp.width / 2), centerY - (tp.height / 2)),
       );
     }
   }
