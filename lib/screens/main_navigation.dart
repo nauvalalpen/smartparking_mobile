@@ -3,6 +3,7 @@ import 'map_screen.dart';
 import 'stats_screen.dart';
 import 'alert_screen.dart';
 import 'profile_screen.dart';
+import '../services/alert_manager.dart';
 
 class MainNavigation extends StatefulWidget {
   final bool isGuest;
@@ -22,6 +23,15 @@ class _MainNavigationState extends State<MainNavigation> {
     const AlertScreen(), // Index 2: Notifikasi (Alert)
     const ProfileScreen(), // Index 3: Profil
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Memuat riwayat notifikasi dari memori internal
+    AlertManager.loadAlerts().then((_) {
+      setState(() {}); // Memastikan UI ter-refresh setelah data dimuat
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
