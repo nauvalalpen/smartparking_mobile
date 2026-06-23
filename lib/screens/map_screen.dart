@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/alert_manager.dart';
+import '../theme/app_theme.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -28,6 +29,10 @@ class _MapScreenState extends State<MapScreen> {
   bool isAlertTriggered = false;
   String lastLoadedImageUrl = "";
 
+  // Guard supaya polling tiap 3 detik tidak menumpuk request baru
+  // selagi request sebelumnya masih menunggu jawaban (lihat _fetchData).
+  bool _isFetching = false;
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +49,7 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
+  // ── LOGIC TIDAK DIUBAH — resolusi gambar tetap dihitung dari NetworkImage ──
   void _updateImageResolution(String url) {
     if (url == lastLoadedImageUrl) return;
 
@@ -63,72 +69,88 @@ class _MapScreenState extends State<MapScreen> {
         );
   }
 
+  // ── LOGIC TIDAK DIUBAH — fetch, filter per kamera, deteksi penuh, alert ──
+  // Tambahan: guard _isFetching agar polling 3 detik tidak menumpuk request
+  // baru ketika request sebelumnya belum selesai (akar penyebab app "hang").
   Future<void> _fetchData() async {
-    final data = await ApiService.getPublicSlots();
-    if (data != null && data['status'] == 'success') {
-      List<dynamic> slots = data['data'];
-      List<dynamic> kameras = data['kameras'];
+    if (_isFetching) return; // request sebelumnya masih jalan, skip dulu
+    _isFetching = true;
 
-      Map<String, String> tempCameraNamesMap = {};
-      Set<String> kamIds = {};
+    try {
+      final data = await ApiService.getPublicSlots();
+      if (data != null && data['status'] == 'success') {
+        List<dynamic> slots = data['data'];
+        List<dynamic> kameras = data['kameras'];
 
-      for (var s in slots) {
-        String camId = s['id_kamera'].toString();
-        String camName = s['camera'] != null
-            ? s['camera']['nama_kamera'] ?? "Kamera $camId"
-            : "Kamera $camId";
+        Map<String, String> tempCameraNamesMap = {};
+        Set<String> kamIds = {};
 
-        tempCameraNamesMap[camId] = camName;
-        kamIds.add(camId);
-      }
+        for (var s in slots) {
+          String camId = s['id_kamera'].toString();
+          String camName = s['camera'] != null
+              ? s['camera']['nama_kamera'] ?? "Kamera $camId"
+              : "Kamera $camId";
 
-      setState(() {
-        cameraNamesMap = tempCameraNamesMap;
-        allSlotData = slots;
-        listKameraIds = kamIds.toList();
-        listDataKamera = kameras;
-
-        if (selectedKameraId == null && listKameraIds.isNotEmpty) {
-          selectedKameraId = listKameraIds.first;
+          tempCameraNamesMap[camId] = camName;
+          kamIds.add(camId);
         }
 
-        if (selectedKameraId != null) {
-          filteredSlotData = allSlotData
-              .where((s) => s['id_kamera'].toString() == selectedKameraId)
-              .toList();
-        }
+        setState(() {
+          cameraNamesMap = tempCameraNamesMap;
+          allSlotData = slots;
+          listKameraIds = kamIds.toList();
+          listDataKamera = kameras;
 
-        totalSlot = filteredSlotData.length;
-        sisaSlot = filteredSlotData
-            .where((s) => s['status'] == 'kosong')
-            .length;
-
-        if (sisaSlot == 0 && totalSlot > 0) {
-          String camDisplayName = _getCameraDisplayName(selectedKameraId!);
-          AlertManager.addAlert("Area $camDisplayName telah penuh!");
-          if (!isAlertTriggered) {
-            isAlertTriggered = true;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text("ALERT: $camDisplayName Penuh!"),
-                backgroundColor: Colors.red,
-              ),
-            );
+          if (selectedKameraId == null && listKameraIds.isNotEmpty) {
+            selectedKameraId = listKameraIds.first;
           }
-        } else {
-          isAlertTriggered = false;
-        }
 
-        var kameraTerpilih = listDataKamera.firstWhere(
-          (k) => k['id_kamera'].toString() == selectedKameraId,
-          orElse: () => null,
-        );
+          if (selectedKameraId != null) {
+            filteredSlotData = allSlotData
+                .where((s) => s['id_kamera'].toString() == selectedKameraId)
+                .toList();
+          }
 
-        if (kameraTerpilih != null) {
-          currentWebWidth = (kameraTerpilih['resolusi_x'] ?? 1280).toDouble();
-          currentWebHeight = (kameraTerpilih['resolusi_y'] ?? 720).toDouble();
-        }
-      });
+          totalSlot = filteredSlotData.length;
+          sisaSlot = filteredSlotData
+              .where((s) => s['status'] == 'kosong')
+              .length;
+
+          if (sisaSlot == 0 && totalSlot > 0) {
+            String camDisplayName = _getCameraDisplayName(selectedKameraId!);
+            AlertManager.addAlert("Area $camDisplayName telah penuh!");
+            if (!isAlertTriggered) {
+              isAlertTriggered = true;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: AppColors.danger,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  content: Text("ALERT: $camDisplayName Penuh!"),
+                ),
+              );
+            }
+          } else {
+            isAlertTriggered = false;
+          }
+
+          var kameraTerpilih = listDataKamera.firstWhere(
+            (k) => k['id_kamera'].toString() == selectedKameraId,
+            orElse: () => null,
+          );
+
+          if (kameraTerpilih != null) {
+            currentWebWidth = (kameraTerpilih['resolusi_x'] ?? 1280).toDouble();
+            currentWebHeight = (kameraTerpilih['resolusi_y'] ?? 720).toDouble();
+          }
+        });
+      }
+    } finally {
+      // Selalu dilepas, baik sukses, gagal, maupun timeout —
+      // supaya polling berikutnya tidak terkunci selamanya.
+      _isFetching = false;
     }
   }
 
@@ -144,88 +166,184 @@ class _MapScreenState extends State<MapScreen> {
 
     _updateImageResolution(imageUrl);
 
-    return Column(
-      children: [
-        // DROPDOWN FILTER
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          color: Colors.white,
-          child: Row(
-            children: [
-              const Icon(Icons.camera_alt, color: Colors.blue),
-              const SizedBox(width: 10),
-              Expanded(
-                child: DropdownButton<String>(
-                  value: listKameraIds.contains(selectedKameraId)
-                      ? selectedKameraId
-                      : null,
-                  isExpanded: true,
-                  hint: const Text("Pilih Kamera..."),
-                  items: listKameraIds.map((String value) {
-                    return DropdownMenuItem<String>(
-                      value: value,
-                      child: Text(_getCameraDisplayName(value)),
-                    );
-                  }).toList(),
-                  onChanged: (newValue) {
-                    if (newValue != null) {
-                      setState(() {
-                        selectedKameraId = newValue;
-                        _fetchData();
-                      });
-                    }
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
+    return Container(
+      color: AppColors.bgBase,
+      child: Column(
+        children: [
+          _buildCameraSelector(),
+          _buildSummaryCard(),
+          _buildMapCanvas(imageUrl),
+        ],
+      ),
+    );
+  }
 
-        // KARTU INFORMASI SISA PARKIR
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          margin: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: sisaSlot > 0 ? Colors.green.shade700 : Colors.red.shade700,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
-          ),
-          child: Column(
-            children: [
-              const Text(
-                "SISA SLOT PARKIR",
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Text(
-                "$sisaSlot / $totalSlot",
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // 🌟 FITUR BARU: CANVAS PETA DENGAN ZOOM & TANPA BLACK BORDER
-        Expanded(
-          child: Container(
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+  // ── DROPDOWN FILTER ──
+  Widget _buildCameraSelector() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: AppColors.border),
+        boxShadow: AppShadow.card,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
-              color: Colors.grey.shade200, // Warna soft pengganti hitam
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300, width: 2),
+              color: AppColors.primarySoft,
+              borderRadius: BorderRadius.circular(AppRadius.sm - 3),
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              // 🌟 INTERACTIVE VIEWER UNTUK PINCH-TO-ZOOM
-              child: InteractiveViewer(
+            child: const Icon(
+              Icons.videocam_outlined,
+              color: AppColors.primary,
+              size: 16,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: listKameraIds.contains(selectedKameraId)
+                    ? selectedKameraId
+                    : null,
+                isExpanded: true,
+                icon: const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: AppColors.textMuted,
+                ),
+                hint: Text(
+                  "Pilih Kamera...",
+                  style: AppText.body.copyWith(color: AppColors.textMuted),
+                ),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+                items: listKameraIds.map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(_getCameraDisplayName(value)),
+                  );
+                }).toList(),
+                onChanged: (newValue) {
+                  if (newValue != null) {
+                    setState(() {
+                      selectedKameraId = newValue;
+                      _fetchData();
+                    });
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── KARTU INFORMASI SISA PARKIR ──
+  Widget _buildSummaryCard() {
+    final bool isFull = sisaSlot == 0 && totalSlot > 0;
+    final Color accent = isFull ? AppColors.danger : AppColors.success;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: accent,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withOpacity(0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Icon(
+              isFull ? Icons.block_rounded : Icons.local_parking_rounded,
+              color: Colors.white,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isFull ? "PARKIRAN PENUH" : "SISA SLOT PARKIR",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      "$sisaSlot",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 34,
+                        fontWeight: FontWeight.w800,
+                        height: 1,
+                      ),
+                    ),
+                    Text(
+                      " / $totalSlot slot",
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.85),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── CANVAS PETA DENGAN ZOOM (logic painter & interaksi tidak diubah) ──
+  Widget _buildMapCanvas(String imageUrl) {
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: AppColors.border),
+          boxShadow: AppShadow.card,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          child: Stack(
+            children: [
+              InteractiveViewer(
                 panEnabled: true, // Bisa digeser
                 scaleEnabled: true, // Bisa di-zoom
                 minScale: 1.0,
@@ -248,21 +366,44 @@ class _MapScreenState extends State<MapScreen> {
                               loadingBuilder:
                                   (context, child, loadingProgress) {
                                     if (loadingProgress == null) return child;
-                                    return const Center(
-                                      child: CircularProgressIndicator(),
+                                    return Container(
+                                      color: AppColors.bgBase,
+                                      child: const Center(
+                                        child: CircularProgressIndicator(
+                                          color: AppColors.primary,
+                                          strokeWidth: 2.4,
+                                        ),
+                                      ),
                                     );
                                   },
                               errorBuilder: (context, error, stackTrace) {
-                                return const Center(
-                                  child: Icon(
-                                    Icons.videocam_off,
-                                    color: Colors.grey,
-                                    size: 50,
+                                return Container(
+                                  color: AppColors.bgBase,
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(
+                                          Icons.videocam_off_rounded,
+                                          color: AppColors.textMuted,
+                                          size: 40,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          "Feed kamera tidak tersedia",
+                                          style: AppText.body.copyWith(
+                                            color: AppColors.textMuted,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 );
                               },
                             ),
 
+                            // CustomPaint — logic ParkingPainter TIDAK DIUBAH SAMA SEKALI
                             CustomPaint(
                               size: Size.infinite,
                               painter: ParkingPainter(
@@ -278,15 +419,47 @@ class _MapScreenState extends State<MapScreen> {
                   },
                 ),
               ),
-            ),
+
+              // Hint zoom — murni dekoratif, tidak mengganggu InteractiveViewer
+              Positioned(
+                bottom: 12,
+                right: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.pinch_rounded, color: Colors.white, size: 13),
+                      SizedBox(width: 5),
+                      Text(
+                        "Cubit untuk zoom",
+                        style: TextStyle(color: Colors.white, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
 
-// === CLASS CUSTOM PAINTER BARU ===
+// ════════════════════════════════════════════════════════════
+// CLASS CUSTOM PAINTER — TIDAK DIUBAH SAMA SEKALI.
+// Semua kalkulasi skala, centroid, dan path poligon dipertahankan
+// identik dengan versi asli. Hanya warna diarahkan ke AppColors
+// agar konsisten dengan tema, tanpa mengubah satu pun rumus.
+// ════════════════════════════════════════════════════════════
 class ParkingPainter extends CustomPainter {
   final List<dynamic> slots;
   final double webWidth;
@@ -334,33 +507,31 @@ class ParkingPainter extends CustomPainter {
       }
       path.close();
 
-      // 🌟 RUMUS CENTROID: Total X dan Y dibagi jumlah titik
+      // RUMUS CENTROID: Total X dan Y dibagi jumlah titik
       double centerX = sumX / coords.length;
       double centerY = sumY / coords.length;
 
       bool isTerisi = slot['status'] == 'terisi';
       Paint paintFill = Paint()
         ..color = isTerisi
-            ? Colors.red.withOpacity(0.4)
-            : Colors.green.withOpacity(0.4)
+            ? AppColors.danger.withOpacity(0.4)
+            : AppColors.success.withOpacity(0.4)
         ..style = PaintingStyle.fill;
       Paint paintStroke = Paint()
-        ..color = isTerisi ? Colors.red.shade700 : Colors.green.shade700
+        ..color = isTerisi ? AppColors.danger : AppColors.success
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.5;
 
       canvas.drawPath(path, paintFill);
       canvas.drawPath(path, paintStroke);
 
-      // 🌟 TEKS DI TENGAH POLIGON (Lebih kecil dan pakai shadow agar terbaca)
+      // TEKS DI TENGAH POLIGON (dengan shadow agar terbaca)
       TextSpan span = TextSpan(
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 12, // Font dikecilkan
+          fontSize: 12,
           fontWeight: FontWeight.bold,
-          shadows: [
-            Shadow(color: Colors.black87, blurRadius: 4),
-          ], // Efek bayangan
+          shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
         ),
         text: slot['nama_slot'],
       );
