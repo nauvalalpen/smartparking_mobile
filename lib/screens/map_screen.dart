@@ -161,8 +161,9 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     String currentCamId = selectedKameraId ?? "1";
+    int cacheBuster = DateTime.now().millisecondsSinceEpoch ~/ 60000;
     String imageUrl =
-        "${ApiService.baseUrl.replaceAll('/api', '')}/snapshots/kamera_$currentCamId.jpg";
+        "${ApiService.baseUrl.replaceAll('/api', '')}/snapshots/kamera_$currentCamId.jpg?v=$cacheBuster";
 
     _updateImageResolution(imageUrl);
 
@@ -363,6 +364,7 @@ class _MapScreenState extends State<MapScreen> {
                               height: double.infinity,
                               fit: BoxFit
                                   .cover, // Cover agar lebih penuh jika di-zoom
+                              gaplessPlayback: true,
                               loadingBuilder:
                                   (context, child, loadingProgress) {
                                     if (loadingProgress == null) return child;
