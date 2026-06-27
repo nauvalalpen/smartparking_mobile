@@ -3,6 +3,7 @@ import 'map_screen.dart';
 import 'stats_screen.dart';
 import 'alert_screen.dart';
 import 'profile_screen.dart';
+import 'login_screen.dart';
 import '../services/alert_manager.dart';
 import '../theme/app_theme.dart';
 
@@ -25,7 +26,7 @@ class _MainNavigationState extends State<MainNavigation> {
     const ProfileScreen(), // Index 3: Profil
   ];
 
-  static const List<_NavItem> _navItems = [
+  static const List<_NavItem> _allNavItems = [
     _NavItem(
       icon: Icons.map_outlined,
       activeIcon: Icons.map_rounded,
@@ -48,6 +49,14 @@ class _MainNavigationState extends State<MainNavigation> {
     ),
   ];
 
+  /// Indeks tab yang TERLIHAT, sesuai status login.
+  /// Guest: hanya index 0 (Peta). Petugas: semua index 0-3.
+  /// Ini satu-satunya sumber kebenaran untuk filter tab — dipakai baik
+  /// untuk merender bottom nav maupun untuk menerjemahkan posisi tab
+  /// yang di-tap kembali ke index asli di `_screens`.
+  List<int> get _visibleIndexes =>
+      widget.isGuest ? const [0] : const [0, 1, 2, 3];
+
   @override
   void initState() {
     super.initState();
@@ -57,34 +66,23 @@ class _MainNavigationState extends State<MainNavigation> {
     });
   }
 
-  // ── LOGIC TIDAK DIUBAH — guest-block tetap berlaku sama persis ──
-  void _onTap(int index) {
-    if (widget.isGuest && index != 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppColors.textPrimary,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-          ),
-          content: const Row(
-            children: [
-              Icon(Icons.lock_outline_rounded, color: Colors.white, size: 18),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  "Akses Ditolak: Fitur ini khusus Petugas Keamanan!",
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-      return;
-    }
+  void _onTap(int realIndex) {
+    // Tidak perlu guard guest lagi di sini — tab yang guest tidak boleh
+    // akses memang sudah tidak dirender sama sekali di bottom nav.
     setState(() {
-      _currentIndex = index;
+      _currentIndex = realIndex;
     });
+  }
+
+  /// Mengarahkan guest balik ke LoginScreen.
+  /// pushReplacement dipakai (bukan pop) karena LoginScreen sudah
+  /// dihapus dari stack sejak _loginAsGuest() dipanggil sebelumnya —
+  /// jadi tidak ada halaman utk di-pop, harus dibuat ulang.
+  void _goToLogin() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+    );
   }
 
   @override
@@ -118,35 +116,75 @@ class _MainNavigationState extends State<MainNavigation> {
                 fontSize: 17,
               ),
             ),
-            if (widget.isGuest) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(AppRadius.full),
-                ),
-                child: const Text(
-                  "TAMU",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.4,
-                  ),
-                ),
-              ),
-            ],
           ],
         ),
       ),
-      body:
-          _screens[_currentIndex], // Menampilkan halaman sesuai index (tidak diubah)
+      body: Column(
+        children: [
+          if (widget.isGuest) _buildGuestBanner(),
+          Expanded(
+            child:
+                _screens[_currentIndex], // Menampilkan halaman sesuai index (tidak diubah)
+          ),
+        ],
+      ),
       bottomNavigationBar: _buildBottomNav(),
     );
   }
 
+  // ── Banner "Anda masuk sebagai Tamu" dengan tombol Login ──
+  Widget _buildGuestBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: AppColors.warningSoft,
+      child: Row(
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 18,
+            color: AppColors.warning,
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              "Anda masuk sebagai Tamu",
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.warning,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: _goToLogin,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              "Login →",
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: AppColors.warning,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Bottom nav — hanya merender tab yang ada di _visibleIndexes ──
   Widget _buildBottomNav() {
+    final visible = _visibleIndexes;
+
+    // Kalau guest dan hanya 1 tab terlihat, tidak perlu nav bar sama sekali —
+    // tidak ada gunanya menampilkan nav dengan 1 tombol yang sudah aktif.
+    if (visible.length <= 1) return const SizedBox.shrink();
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -162,46 +200,22 @@ class _MainNavigationState extends State<MainNavigation> {
         child: SizedBox(
           height: 64,
           child: Row(
-            children: List.generate(_navItems.length, (index) {
-              final item = _navItems[index];
-              final isActive = _currentIndex == index;
-              final isLocked = widget.isGuest && index != 0;
+            children: visible.map((realIndex) {
+              final item = _allNavItems[realIndex];
+              final isActive = _currentIndex == realIndex;
 
               return Expanded(
                 child: InkWell(
-                  onTap: () => _onTap(index),
+                  onTap: () => _onTap(realIndex),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Stack(
-                        clipBehavior: Clip.none,
-                        alignment: Alignment.center,
-                        children: [
-                          Icon(
-                            isActive ? item.activeIcon : item.icon,
-                            color: isActive
-                                ? AppColors.primary
-                                : AppColors.textMuted,
-                            size: 23,
-                          ),
-                          if (isLocked)
-                            Positioned(
-                              right: -6,
-                              top: -4,
-                              child: Container(
-                                padding: const EdgeInsets.all(2),
-                                decoration: const BoxDecoration(
-                                  color: AppColors.textMuted,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.lock_rounded,
-                                  size: 8,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                        ],
+                      Icon(
+                        isActive ? item.activeIcon : item.icon,
+                        color: isActive
+                            ? AppColors.primary
+                            : AppColors.textMuted,
+                        size: 23,
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -220,7 +234,7 @@ class _MainNavigationState extends State<MainNavigation> {
                   ),
                 ),
               );
-            }),
+            }).toList(),
           ),
         ),
       ),
