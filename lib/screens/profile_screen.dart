@@ -15,6 +15,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String nama = "Memuat...";
   String email = "Memuat...";
   String role = "";
+  String areaPenugasan = "Memuat..."; // Variabel Dinamis
+  String shiftKerja = "Memuat..."; // Variabel Dinamis
   bool _isLoggingOut = false;
 
   @override
@@ -23,13 +25,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserData();
   }
 
-  // ── LOGIC TIDAK DIUBAH — sumber data tetap SharedPreferences ──
   Future<void> _loadUserData() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
       nama = prefs.getString('nama') ?? "Petugas Keamanan";
       email = prefs.getString('email') ?? "Tidak ada email";
       role = prefs.getString('role') ?? "petugas";
+      // Ambil data dinamis dari sesi login
+      areaPenugasan = prefs.getString('area_penugasan') ?? "Belum Ditugaskan";
+      shiftKerja = prefs.getString('shift_kerja') ?? "Belum Ada Shift";
     });
   }
 
@@ -105,7 +109,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ── Header Profil ──
   Widget _buildProfileHeader() {
     return Container(
       width: double.infinity,
@@ -179,7 +182,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ── Menu Informasi Akun ──
   Widget _buildInfoCard() {
     return Container(
       decoration: BoxDecoration(
@@ -193,21 +195,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _InfoRow(
             icon: Icons.location_on_outlined,
             title: "Area Penugasan",
-            subtitle: "Parkiran Rektorat PNP",
+            subtitle: areaPenugasan, // Data Dinamis
           ),
           _divider(),
           _InfoRow(
             icon: Icons.access_time_rounded,
             title: "Shift Kerja",
-            subtitle: "Pagi (08:00 - 16:00)",
+            subtitle: shiftKerja, // Data Dinamis
           ),
-          _divider(),
-          _InfoRow(
-            icon: Icons.help_outline_rounded,
-            title: "Pusat Bantuan",
-            subtitle: "Hubungi admin sistem",
-            showChevron: true,
-          ),
+          // HAPUS PUSAT BANTUAN DI SINI
         ],
       ),
     );
@@ -217,7 +213,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Divider(height: 1, color: AppColors.border, indent: 56);
   }
 
-  // ── Tombol Logout ──
   Widget _buildLogoutButton() {
     return SizedBox(
       width: double.infinity,
@@ -251,19 +246,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-/// Baris menu untuk kartu "Informasi Akun".
-/// Murni presentasional — tidak menyentuh data atau navigasi.
 class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  final bool showChevron;
 
   const _InfoRow({
     required this.icon,
     required this.title,
     required this.subtitle,
-    this.showChevron = false,
   });
 
   @override
@@ -299,12 +290,6 @@ class _InfoRow extends StatelessWidget {
               ],
             ),
           ),
-          if (showChevron)
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: AppColors.textMuted,
-              size: 20,
-            ),
         ],
       ),
     );

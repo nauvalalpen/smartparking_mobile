@@ -17,8 +17,8 @@ class _MapScreenState extends State<MapScreen> {
   int sisaSlot = 0;
   List<dynamic> allSlotData = [];
   List<dynamic> filteredSlotData = [];
-  double currentWebWidth = 1280.0;
-  double currentWebHeight = 720.0;
+  final double currentWebWidth = 1280.0;
+  final double currentWebHeight = 720.0;
   List<dynamic> listDataKamera = [];
 
   Map<String, String> cameraNamesMap = {};
@@ -50,24 +50,24 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // ── LOGIC TIDAK DIUBAH — resolusi gambar tetap dihitung dari NetworkImage ──
-  void _updateImageResolution(String url) {
-    if (url == lastLoadedImageUrl) return;
+  // void _updateImageResolution(String url) {
+  //   if (url == lastLoadedImageUrl) return;
 
-    final ImageProvider imageProvider = NetworkImage(url);
-    imageProvider
-        .resolve(const ImageConfiguration())
-        .addListener(
-          ImageStreamListener((ImageInfo info, bool _) {
-            if (mounted) {
-              setState(() {
-                currentWebWidth = info.image.width.toDouble();
-                currentWebHeight = info.image.height.toDouble();
-                lastLoadedImageUrl = url;
-              });
-            }
-          }),
-        );
-  }
+  //   final ImageProvider imageProvider = NetworkImage(url);
+  //   imageProvider
+  //       .resolve(const ImageConfiguration())
+  //       .addListener(
+  //         ImageStreamListener((ImageInfo info, bool _) {
+  //           if (mounted) {
+  //             setState(() {
+  //               currentWebWidth = info.image.width.toDouble();
+  //               currentWebHeight = info.image.height.toDouble();
+  //               lastLoadedImageUrl = url;
+  //             });
+  //           }
+  //         }),
+  //       );
+  // }
 
   // ── LOGIC TIDAK DIUBAH — fetch, filter per kamera, deteksi penuh, alert ──
   // Tambahan: guard _isFetching agar polling 3 detik tidak menumpuk request
@@ -140,11 +140,6 @@ class _MapScreenState extends State<MapScreen> {
             (k) => k['id_kamera'].toString() == selectedKameraId,
             orElse: () => null,
           );
-
-          if (kameraTerpilih != null) {
-            currentWebWidth = (kameraTerpilih['resolusi_x'] ?? 1280).toDouble();
-            currentWebHeight = (kameraTerpilih['resolusi_y'] ?? 720).toDouble();
-          }
         });
       }
     } finally {
@@ -165,7 +160,7 @@ class _MapScreenState extends State<MapScreen> {
     String imageUrl =
         "${ApiService.baseUrl.replaceAll('/api', '')}/snapshots/kamera_$currentCamId.jpg?v=$cacheBuster";
 
-    _updateImageResolution(imageUrl);
+    // _updateImageResolution(imageUrl);
 
     return Container(
       color: AppColors.bgBase,

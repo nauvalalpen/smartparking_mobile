@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Ganti dengan IP WiFi Anda jika pakai HP Fisik. 10.0.2.2 khusus Emulator Android.
   static const String baseUrl =
-      'http://10.5.50.2/smartparking-backend/public/api';
+      'http://smartparkingpnp.rf.gd/api';
 
   // Timeout standar untuk semua request.
   // Tanpa ini, http.get/post akan menunggu TANPA BATAS WAKTU jika
@@ -33,6 +33,8 @@ class ApiService {
         await prefs.setString('nama', data['data']['nama_lengkap']);
         await prefs.setString('email', data['data']['email']);
         await prefs.setString('role', data['data']['role']);
+        await prefs.setString('area_penugasan', data['data']['area_penugasan']);
+        await prefs.setString('shift_kerja', data['data']['shift_kerja']);
         return true;
       }
     } on TimeoutException catch (e) {
