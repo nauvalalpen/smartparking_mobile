@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Ganti dengan IP WiFi Anda jika pakai HP Fisik. 10.0.2.2 khusus Emulator Android.
   static const String baseUrl =
-      'http://smartparkingpnp.rf.gd/api';
+      'https://smartparking-backend-production-fead.up.railway.app/api';
 
   // Timeout standar untuk semua request.
   // Tanpa ini, http.get/post akan menunggu TANPA BATAS WAKTU jika
